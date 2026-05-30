@@ -266,8 +266,97 @@ function draw() {
   }
 
   drawVisualizer();
+  drawIntervalReadout();
   drawButtons();
   drawSliders();
+}
+
+// Names for the 13 chromatic intervals within an octave (0..12 semitones).
+const INTERVAL_NAMES = [
+  'Unison', 'Minor 2nd', 'Major 2nd', 'Minor 3rd', 'Major 3rd',
+  'Perfect 4th', 'Tritone', 'Perfect 5th', 'Minor 6th', 'Major 6th',
+  'Minor 7th', 'Major 7th', 'Octave'
+];
+
+// Recognizable chords keyed by their reduced integer ratio.
+const CHORD_NAMES = {
+  '4:5:6': 'Major triad',
+  '10:12:15': 'Minor triad',
+  '5:6:7': 'Diminished triad',
+  '16:20:25': 'Augmented triad',
+  '4:5:6:7': 'Dominant 7th',
+  '8:10:12:15': 'Major 7th',
+  '10:12:15:18': 'Minor 7th',
+  '4:5:6:8': 'Major triad (+oct)',
+  '2:3': 'Perfect 5th',
+};
+
+// Express a set of frequencies as the smallest integer ratio a:b:c...
+// by scaling the normalized ratios until they all land near integers.
+// Returns { ints, exact, fundamental } or null if no simple set is found.
+function integerRatio(freqs) {
+  const f0 = freqs[0];
+  const rs = freqs.map(f => f / f0);
+  const maxM = 32, tol = 0.05;
+  for (let m = 1; m <= maxM; m++) {
+    let worst = 0;
+    for (const r of rs) {
+      const v = r * m;
+      worst = Math.max(worst, Math.abs(v - Math.round(v)));
+    }
+    if (worst <= tol) {
+      let ints = rs.map(r => Math.round(r * m));
+      const g = ints.reduce((a, b) => gcd(a, b));
+      ints = ints.map(x => x / g);
+      return { ints, exact: worst < 1e-4, fundamental: f0 / ints[0] };
+    }
+  }
+  return null;
+}
+
+// Show the harmony between the held notes: a two-note interval (ratio +
+// name + cents) or, for chords, the reduced integer ratio + chord name +
+// implied (virtual) fundamental.
+function drawIntervalReadout() {
+  const notes = Object.values(activeNotes);
+  if (notes.length < 2) return;
+
+  const freqs = notes.map(n => n.freq).sort((a, b) => a - b);
+
+  let big, small;
+  if (freqs.length === 2) {
+    const ratio = freqs[1] / freqs[0];
+    const cents = 1200 * Math.log(ratio) / Math.log(2);
+    const name = INTERVAL_NAMES[constrain(Math.round(cents / 100), 0, 12)];
+    const frac = ratioFraction(ratio, 16).split('/');
+    const p = +frac[0], q = +frac[1];
+    const exact = Math.abs(ratio - p / q) < 1e-4;
+    big = (exact ? '' : '\u2248 ') + p + ' : ' + q;
+    small = name + '   \u2022   ' + ratio.toFixed(3) + '\u00D7   \u2022   ' +
+            Math.round(cents) + '\u00A2';
+  } else {
+    const r = integerRatio(freqs);
+    if (r) {
+      big = (r.exact ? '' : '\u2248 ') + r.ints.join(' : ');
+      const name = CHORD_NAMES[r.ints.join(':')];
+      small = (name ? name + '   \u2022   ' : '') +
+              'fundamental ' + r.fundamental.toFixed(1) + ' Hz';
+    } else {
+      big = '\u2248 ' + freqs.map(f => (f / freqs[0]).toFixed(2)).join(' : ');
+      small = 'complex / inharmonic \u2014 no simple ratio';
+    }
+  }
+
+  push();
+  textAlign(CENTER, CENTER);
+  noStroke();
+  fill(255);
+  textSize(min(38, (CANVAS_W - 80) / (big.length * 0.62)));
+  text(big, CANVAS_W / 2, 150);
+  textSize(16);
+  fill(180, 200, 220);
+  text(small, CANVAS_W / 2, 188);
+  pop();
 }
 
 function drawVisualizer() {
